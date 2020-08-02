@@ -16,7 +16,7 @@ import scipy as sp
 import mkl_fft as fft
 
 
-def GPE_2d(p, V, g, psi0, imag_t=True):
+def GPE_2d(p, V, beta, psi0, imag_t=True):
     x = np.linspace(-p['X_range'], p['X_range'], p['X_grid'])
     X, Y = np.meshgrid(x, x)
     dx = x[1]-x[0]                        # dx is the X mesh spacing
@@ -44,7 +44,7 @@ def GPE_2d(p, V, g, psi0, imag_t=True):
         prefactor = 1
 
     U1 = -prefactor*V*dt/2.0
-    C1 = -prefactor*g*dt/2.0
+    C1 = -prefactor*beta*dt/2.0
     K = (Kx**2+Ky**2)
     Kin = np.exp(-prefactor*K*dt/2.0)
     Kinjj = np.exp(-1j*K*dt/2.0)
@@ -98,7 +98,7 @@ def V_ho(p):
     # harmonic trap
     x = np.linspace(-p['X_range'], p['X_range'], p['X_grid'])
     X, Y = np.meshgrid(x, x)
-    return 0.5*(p['trap_f']/w_s(p))**2*(X**2+Y**2)
+    return 0.5*X**2+0.5*(p['trap_f']/w_s(p))**2*Y**2
 
 def V_box(p):
     # box trap
@@ -122,23 +122,23 @@ def V(p):
     
     return np.tensordot(V_t, V_0, axes=0)
 
-def g0(p):
+def beta0(p):
     # coupling constant in dimensionless GP
     x = np.linspace(-p['X_range'], p['X_range'], p['X_grid'])
     X, Y = np.meshgrid(x, x)
-    return 0*X + 0*Y + 4*np.pi*a_s(p)/x_s(p)
+    return 0*X + 0*Y + 4*np.pi*a_s(p)*p['n']/x_s(p) * np.sqrt(p['wz']/p['wx']/2/np.pi)
     
-def g(p):
+def beta(p):
     # time dependent interaction
     t = np.arange(0, p['T'], p['dt'])
-    g_0 = g0(p)
+    beta_0 = beta0(p)
     
     if p['mod_g']:
-        g_t = np.sin(t)
+        beta_t = np.sin(t)
     else:
-        g_t = np.ones(t.shape)
+        beta_t = np.ones(t.shape)
     
-    return np.tensordot(g_t, g_0, axes=0)
+    return np.tensordot(beta_t, beta_0, axes=0)
 
 def psi_init(p, imag_t=True):
     # initial wavefunction
@@ -147,7 +147,7 @@ def psi_init(p, imag_t=True):
     
     if imag_t:
         # initial guess
-        psi = np.exp(-(X**2+Y**2)/2)
+        psi = np.exp(-(X**2+Y**2))/np.pi
     else:
         # initial wavefunction with a kick
         psi = np.exp(-(X**2+Y**2)/2)/np.sqrt(np.pi)*np.exp(1j*2*X)
@@ -186,29 +186,31 @@ if __name__ == "__main__":
     parameters = {
         'X_range':        20, # grid range
         'X_grid':        256, # grid number
+        'n':           100e3, # number of atoms
         'T':            1e-2, # total evolution time in s
         'dt':           1e-6, # evolution time step in s
         'snap':         1e-4, # snapshot in s
-        'error':        1e-4, # tolerence for convergence
-        'trap':        'box', # trap type
-        'trap_f': 2*np.pi*20, # harmonic trap frequency in rad/s
+        'error':           1, # tolerence for convergence
+        'trap':         'ho', # trap type
+        'trap_f': 2*np.pi*20, # y trap frequency in rad/s
         'b_size':          5, # box trap range
         'a':             100, # scattering length in Bohr radius
-        'wx':    2*np.pi*2e3, # vertical trap frequency in rad/s
+        'wx':     2*np.pi*20, # x trap frequency in rad/s
+        'wz':    2*np.pi*2e3, # z trap frequency in rad/s
         'mod_v':       False, # modulate potential
         'mod_g':       False, # modulate interaction
     }
     
     V = V(parameters)
-    g = g(parameters)
+    beta = beta(parameters)
     psi0 = psi_init(parameters, imag_t=True)
     start = time.time()
-    psi_gs, energy_gs, ep, _ = GPE_2d(parameters, V=V, g=g, psi0=psi0, imag_t=True)
-    psi_f, _, _, Tstore = GPE_2d(parameters, V=V, g=g, psi0=psi_gs[-1], imag_t=False)
+    psi_gs, energy_gs, ep, _ = GPE_2d(parameters, V=V, beta=beta, psi0=psi0, imag_t=True)
+    psi_f, _, _, Tstore = GPE_2d(parameters, V=V, beta=beta, psi0=psi_gs[-1], imag_t=False)
     end = time.time()
     print('runtime = %.3f' % (end-start))
     plt.figure()
     plt.imshow(Prob(psi_gs[-1]))
     plt.figure()
-    plt.imshow(Prob(psi_f[-2]))
+    plt.imshow(Prob(psi_f[-1]))
     plt.show()
