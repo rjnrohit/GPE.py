@@ -49,7 +49,7 @@ def GPE_2d(p, V, beta, psi0, imag_t=True):
     Kin = np.exp(-prefactor*K*dt/2.0)
     Kinjj = np.exp(-1j*K*dt/2.0)
     psi = psi0
-
+    
     for i in range(N):
         # Split step Fourier transform
         C = C1[i]  # lookup 
@@ -87,6 +87,8 @@ def GPE_2d(p, V, beta, psi0, imag_t=True):
                 if ep[j] <= error:
                     # If the absolute error is less than specified, stop now.
                     psi_out = psi_out[0:j+2]
+                    energy_out = energy_out[0:j+2]
+                    ep = ep[0:j+1]
                     break
             else:
                 # Store the wavefuction in psi_out
@@ -105,7 +107,7 @@ def V_box(p):
     x = np.linspace(-p['X_range'], p['X_range'], p['X_grid'])
     X, Y = np.meshgrid(x, x)
     return np.tanh(-p['b_size']-X)+np.tanh(X-p['b_size'])+np.tanh(-p['b_size']-Y)+np.tanh(Y-p['b_size'])
-	
+
 def V(p):
     # time dependent potential
     t = np.arange(0, p['T'], p['dt'])
@@ -147,7 +149,7 @@ def psi_init(p, imag_t=True):
     
     if imag_t:
         # initial guess
-        psi = np.exp(-(X**2+Y**2))/np.pi
+        psi = np.exp(-(X**2+Y**2)/2)/2/np.pi
     else:
         # initial wavefunction with a kick
         psi = np.exp(-(X**2+Y**2)/2)/np.sqrt(np.pi)*np.exp(1j*2*X)
@@ -190,11 +192,11 @@ if __name__ == "__main__":
         'T':            1e-2, # total evolution time in s
         'dt':           1e-6, # evolution time step in s
         'snap':         1e-4, # snapshot in s
-        'error':           1, # tolerence for convergence
+        'error':        0.01, # tolerence for convergence
         'trap':         'ho', # trap type
         'trap_f': 2*np.pi*20, # y trap frequency in rad/s
         'b_size':          5, # box trap range
-        'a':             100, # scattering length in Bohr radius
+        'a':              10, # scattering length in Bohr radius
         'wx':     2*np.pi*20, # x trap frequency in rad/s
         'wz':    2*np.pi*2e3, # z trap frequency in rad/s
         'mod_v':       False, # modulate potential
