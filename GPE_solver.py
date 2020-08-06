@@ -15,7 +15,6 @@ import numexpr as ne
 import scipy as sp
 import mkl_fft as fft
 
-
 def GPE_2d(p, V, beta, psi0, imag_t=True):
     x = np.linspace(-p['X_range'], p['X_range'], p['X_grid'])
     X, Y = np.meshgrid(x, x)
@@ -35,13 +34,13 @@ def GPE_2d(p, V, beta, psi0, imag_t=True):
     dt = p['dt']
     error = p['error']
     
-    ## For real time propagation
-    if imag_t is False:
-        prefactor = 1j
-        
     ## For imaginary time propagation
-    else:
+    if imag_t:
         prefactor = 1
+        
+    ## For real time propagation
+    else:
+        prefactor = 1j
 
     U1 = -prefactor*V*dt/2.0
     C1 = -prefactor*beta*dt/2.0
@@ -50,51 +49,82 @@ def GPE_2d(p, V, beta, psi0, imag_t=True):
     Kinjj = np.exp(-1j*K*dt/2.0)
     psi = psi0
     
+    if imag_t:
+        psi_out, energy_out, ep = _evolve_i(N, Ntskip, U1, C1, psi, psi_out, energy_out, ep, K, dx, dt, error)
+    else:
+        psi_out = _evolve_r(N, Ntskip, U1, C1, psi, psi_out, K, dt)
+    
+    return psi_out, energy_out, ep, Tstore
+
+def _evolve_r(N, Ntskip, U1, C1, psi, psi_out, K, dt):
+    Kin = np.exp(-K*dt/2.0)
+    
     for i in range(N):
-        # Split step Fourier transform
         C = C1[i]  # lookup 
         U = U1[i]  # lookup
         
+        # Split step Fourier transform
+        psi = np.exp(U+C*psi*np.conj(psi))*psi
+        #psi = ne.evaluate('exp(U+C*psi*conj(psi))*psi')
+        psi = fft.ifft2(Kin*fft.fft2(psi))
+        psi = np.exp(U+C*psi*np.conj(psi))*psi
+        #psi = ne.evaluate('exp(U+C*psi*conj(psi))*psi')
+        
+        if i%Ntskip == 0:
+            # Store results
+            j = int(i/Ntskip)
+            
+            # Store the wavefuction in psi_out
+            psi_out[j+1,:] = psi
+    
+    return psi_out
+
+def _evolve_i(N, Ntskip, U1, C1, psi, psi_out, energy_out, ep, K, dx, dt, error):
+    Kin = np.exp(-1j*K*dt/2.0)
+    Kinjj = np.exp(-1j*K*dt/2.0)
+    
+    for i in range(N):
+        C = C1[i]  # lookup 
+        U = U1[i]  # lookup
+        
+        # Split step Fourier transform
         #psi = np.exp(U+C*psi*np.conj(psi))*psi
         psi = ne.evaluate('exp(U+C*psi*conj(psi))*psi')
         psi = fft.ifft2(Kin*fft.fft2(psi))
         #psi = np.exp(U+C*psi*np.conj(psi))*psi
         psi = ne.evaluate('exp(U+C*psi*conj(psi))*psi')
         
-        if imag_t:
-            # For Imaginary time propagation, normalize every loop
-            psi_int = np.sum(np.conj(psi)*psi)*dx*dx
-            psi = psi/psi_int**0.5
+        # For Imaginary time propagation, normalize every loop
+        psi_int = np.sum(np.conj(psi)*psi)*dx*dx
+        psi = psi/psi_int**0.5
 
         if i%Ntskip == 0:
             # Store results
             j = int(i/Ntskip)
             
-            if imag_t:
-                # Calculate the energy
-                
-                #psi_new = np.exp(1j*U+1j*C*psi*np.conj(psi))*psi
-                psi_new = ne.evaluate('exp(1j*U+1j*C*psi*conj(psi))*psi')
-                psi_new = fft.ifft2(Kinjj*fft.fft2(psi_new))
-                #psi_new = np.exp(1j*U+1j*C*psi_new*np.conj(psi_new))*psi_new
-                psi_new = ne.evaluate('exp(1j*U+1j*C*psi_new*conj(psi_new))*psi_new')
-                energy_out[j+1] = np.log(np.sum(np.conj(psi_new)*psi)*dx*dx)*1j/dt
+            # Calculate the energy
+            #psi_new = np.exp(1j*U+1j*C*psi*np.conj(psi))*psi
+            psi_new = ne.evaluate('exp(1j*U+1j*C*psi*conj(psi))*psi')
+            psi_new = fft.ifft2(Kinjj*fft.fft2(psi_new))
+            #psi_new = np.exp(1j*U+1j*C*psi_new*np.conj(psi_new))*psi_new
+            psi_new = ne.evaluate('exp(1j*U+1j*C*psi_new*conj(psi_new))*psi_new')
+            energy_out[j+1] = np.log(np.sum(np.conj(psi_new)*psi)*dx*dx)*1j/dt
             
-                # Calculate how much the solution has converged.
-                ep[j] = np.abs(energy_out[j+1]-energy_out[j])
-                psi_out[j+1,:] = psi
+            # Calculate how much the solution has converged.
+            ep[j] = np.abs(energy_out[j+1]-energy_out[j])
+            psi_out[j+1,:] = psi
 
-                if ep[j] <= error:
-                    # If the absolute error is less than specified, stop now.
-                    psi_out = psi_out[0:j+2]
-                    energy_out = energy_out[0:j+2]
-                    ep = ep[0:j+1]
-                    break
+            if ep[j] <= error:
+                # If the absolute error is less than specified, stop now.
+                psi_out = psi_out[0:j+2]
+                energy_out = energy_out[0:j+2]
+                ep = ep[0:j+1]
+                break
             else:
                 # Store the wavefuction in psi_out
                 psi_out[j+1,:] = psi
     
-    return psi_out, energy_out, ep, Tstore
+    return psi_out, energy_out, ep
 
 def V_ho(p):
     # harmonic trap
@@ -146,10 +176,12 @@ def psi_init(p, imag_t=True):
     # initial wavefunction
     x = np.linspace(-p['X_range'], p['X_range'], p['X_grid'])
     X, Y = np.meshgrid(x, x)
+    dx = x[1]-x[0]
     
     if imag_t:
         # initial guess
         psi = np.exp(-(X**2+Y**2)/2)/2/np.pi
+        psi = psi/(np.sum(np.conj(psi)*psi)*dx*dx)**0.5
     else:
         # initial wavefunction with a kick
         psi = np.exp(-(X**2+Y**2)/2)/np.sqrt(np.pi)*np.exp(1j*2*X)
@@ -192,11 +224,11 @@ if __name__ == "__main__":
         'T':            1e-2, # total evolution time in s
         'dt':           1e-6, # evolution time step in s
         'snap':         1e-4, # snapshot in s
-        'error':        0.01, # tolerence for convergence
+        'error':         0.1, # tolerence for convergence
         'trap':         'ho', # trap type
         'trap_f': 2*np.pi*20, # y trap frequency in rad/s
         'b_size':          5, # box trap range
-        'a':              10, # scattering length in Bohr radius
+        'a':               0, # scattering length in Bohr radius
         'wx':     2*np.pi*20, # x trap frequency in rad/s
         'wz':    2*np.pi*2e3, # z trap frequency in rad/s
         'mod_v':       False, # modulate potential
